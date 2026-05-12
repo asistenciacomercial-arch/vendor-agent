@@ -1,27 +1,28 @@
-from openai import OpenAI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi import FastAPI, UploadFile, File
-import pdfplumber
-import os
-import traceback
-from docx import Document
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
 from openpyxl import load_workbook
+from docx import Document
+from pdf2image import convert_from_path
+
+from openai import OpenAI
+
+import pytesseract
+import pdfplumber
+import shutil
+import traceback
+import tempfile
+import uuid
+import json
+import re
+import os
+
+# =========================================================
+# APP
+# =========================================================
 
 app = FastAPI()
-
-# =========================
-# GROQ CLIENT
-# =========================
-
-client = OpenAI(
-    api_key=os.getenv("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
-)
-
-# =========================
-# STATIC FILES
-# =========================
 
 app.mount(
     "/static",
@@ -29,9 +30,17 @@ app.mount(
     name="static"
 )
 
-# =========================
+# =========================================================
+# OPENAI
+# =========================================================
+
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
+
+# =========================================================
 # ROOT
-# =========================
+# =========================================================
 
 @app.get("/")
 def root():
@@ -40,48 +49,82 @@ def root():
         "status": "vendor-agent-running"
     }
 
-# =========================
+# =========================================================
 # FRONTEND
-# =========================
+# =========================================================
 
 @app.get("/app")
 def app_page():
 
     return FileResponse("app/static/index.html")
 
-# =========================
+# =========================================================
 # PDF TEXT EXTRACTION
-# =========================
+# =========================================================
 
 def extract_text_from_pdf(pdf_path):
 
     text = ""
 
-    with pdfplumber.open(pdf_path) as pdf:
+    # ==========================
+    # NORMAL PDF EXTRACTION
+    # ==========================
 
-        for page in pdf.pages:
+    try:
 
-            page_text = page.extract_text()
+        with pdfplumber.open(pdf_path) as pdf:
 
-            if page_text:
-                text += page_text + "\n"
+            for page in pdf.pages:
+
+                page_text = page.extract_text()
+
+                if page_text:
+                    text += page_text + "\n"
+
+    except:
+        pass
+
+    # ==========================
+    # OCR FALLBACK
+    # ==========================
+
+    if text.strip() == "":
+
+        try:
+
+            images = convert_from_path(pdf_path)
+
+            for image in images:
+
+                ocr_text = pytesseract.image_to_string(
+                    image,
+                    lang="eng"
+                )
+
+                text += ocr_text + "\n"
+
+        except:
+            pass
 
     return text
 
-# =========================
+# =========================================================
 # AI EXTRACTION
-# =========================
+# =========================================================
 
 def extract_with_ai(text):
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+
+        model="gpt-4.1-mini",
+
         messages=[
+
             {
                 "role": "system",
                 "content": """
                 Extrae información empresarial
-                desde documentos legales y devuelve
+                de documentos legales y devuelve
                 JSON limpio.
 
                 Extrae:
@@ -89,28 +132,50 @@ def extract_with_ai(text):
                 - empresa
                 - nit
                 - representante_legal
-                - direccion
                 - email
                 - telefono
+                - direccion
                 - banco
                 - numero_cuenta
                 - tipo_cuenta
                 - ciudad
+
+                Devuelve SOLO JSON válido.
                 """
             },
+
             {
                 "role": "user",
-                "content": text[:12000]
+                "content": text[:15000]
             }
-        ],
-        temperature=0
+
+        ]
     )
 
     return response.choices[0].message.content
 
-# =========================
-# UPLOAD COMPANY DOCUMENTS
-# =========================
+# =========================================================
+# SAFE JSON PARSER
+# =========================================================
+
+def parse_ai_json(ai_response):
+
+    try:
+
+        cleaned = ai_response.strip()
+
+        cleaned = cleaned.replace("```json", "")
+        cleaned = cleaned.replace("```", "")
+
+        return json.loads(cleaned)
+
+    except:
+
+        return {}
+
+# =========================================================
+# DOCUMENT PROCESSING
+# =========================================================
 
 @app.post("/upload-company-documents")
 async def upload_company_documents(
@@ -119,59 +184,112 @@ async def upload_company_documents(
 
     try:
 
-        all_text = ""
-
         os.makedirs(
             "storage/company_docs",
             exist_ok=True
         )
 
-        for file in files:
+        all_text = ""
 
-            # Solo PDFs
-            if not file.filename.lower().endswith(".pdf"):
-                continue
+        # =====================================
+        # SAVE + READ FILES
+        # =====================================
+
+        for file in files:
 
             file_path = (
                 f"storage/company_docs/{file.filename}"
             )
 
-            # Guardar archivo
             with open(file_path, "wb") as f:
 
                 f.write(await file.read())
 
-            # Extraer texto
-            text = extract_text_from_pdf(file_path)
+            # ==========================
+            # PDF
+            # ==========================
 
-            # Limitar tamaño
-            all_text += text[:5000] + "\n"
+            if file.filename.lower().endswith(".pdf"):
 
-        # IA
+                text = extract_text_from_pdf(file_path)
+
+                all_text += text + "\n"
+
+        # =====================================
+        # AI EXTRACTION
+        # =====================================
+
         ai_response = extract_with_ai(all_text)
 
+        company_data = parse_ai_json(ai_response)
+
+        # =====================================
+        # SAVE PROFILE
+        # =====================================
+
+        os.makedirs(
+            "storage",
+            exist_ok=True
+        )
+
         with open(
-            "storage/company_profile.json",
+            "storage/company_data.json",
             "w",
             encoding="utf-8"
         ) as f:
 
-            f.write(ai_response)
+            json.dump(
+                company_data,
+                f,
+                indent=4,
+                ensure_ascii=False
+            )
 
         return {
+
             "status": "success",
+
             "message": "Documents processed",
-            "ai_response": ai_response,
+
+            "company_data": company_data,
+
             "preview_text": all_text[:3000]
         }
 
     except Exception as e:
 
         return {
+
             "status": "error",
+
             "detail": str(e),
+
             "trace": traceback.format_exc()
         }
+
+# =========================================================
+# LOAD COMPANY DATA
+# =========================================================
+
+def load_company_data():
+
+    try:
+
+        with open(
+            "storage/company_data.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            return json.load(f)
+
+    except:
+
+        return {}
+
+# =========================================================
+# FILL WORD
+# =========================================================
 
 @app.post("/fill-word")
 async def fill_word(
@@ -180,98 +298,101 @@ async def fill_word(
 
     try:
 
-        # cargar perfil empresa
-        with open(
-            "storage/company_profile.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
+        company_data = load_company_data()
 
-            company_data = f.read()
-
-        # guardar word temporal
         os.makedirs(
-            "storage/forms",
+            "storage/temp",
             exist_ok=True
         )
 
-        form_path = (
-            f"storage/forms/{file.filename}"
+        input_path = (
+            f"storage/temp/{uuid.uuid4()}.docx"
         )
 
-        with open(form_path, "wb") as temp_file:
+        with open(input_path, "wb") as f:
 
-            temp_file.write(await file.read())
+            shutil.copyfileobj(file.file, f)
 
-        # abrir word
-        doc = Document(form_path)
+        # =====================================
+        # OPEN WORD
+        # =====================================
 
-        # recorrer párrafos
+        doc = Document(input_path)
+
+        # =====================================
+        # PARAGRAPHS
+        # =====================================
+
         for paragraph in doc.paragraphs:
 
-            text = paragraph.text
+            for key, value in company_data.items():
 
-            if not text.strip():
-                continue
+                if value is None:
+                    continue
 
-            # IA decide reemplazos
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"""
-                        Eres un asistente que llena
-                        formularios empresariales.
+                if key.lower() in paragraph.text.lower():
 
-                        Datos empresa:
+                    paragraph.text = (
+                        f"{paragraph.text} {value}"
+                    )
 
-                        {company_data}
+        # =====================================
+        # TABLES
+        # =====================================
 
-                        Si el texto contiene un campo
-                        o pregunta empresarial,
-                        devuelve SOLO el valor correcto.
+        for table in doc.tables:
 
-                        Si no aplica,
-                        devuelve exactamente el mismo texto.
-                        """
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
-                ],
-                temperature=0
-            )
+            for row in table.rows:
 
-            new_text = (
-                response
-                .choices[0]
-                .message
-                .content
-            )
+                for cell in row.cells:
 
-            paragraph.text = new_text
+                    for key, value in company_data.items():
 
-        # guardar resultado
+                        if value is None:
+                            continue
+
+                        if key.lower() in cell.text.lower():
+
+                            cell.text = (
+                                f"{cell.text} {value}"
+                            )
+
+        # =====================================
+        # SAVE
+        # =====================================
+
         output_path = (
-            f"storage/forms/FILLED_{file.filename}"
+            f"storage/temp/FILLED_{uuid.uuid4()}.docx"
         )
 
         doc.save(output_path)
 
         return FileResponse(
+
             output_path,
-            filename=f"FILLED_{file.filename}"
+
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+
+            filename="FILLED_WORD.docx"
         )
 
     except Exception as e:
 
         return {
+
             "status": "error",
+
             "detail": str(e),
+
             "trace": traceback.format_exc()
-        }    
+        }
+
+# =========================================================
+# FILL EXCEL
+# =========================================================
+
 @app.post("/fill-excel")
 async def fill_excel(
     file: UploadFile = File(...)
@@ -279,103 +400,112 @@ async def fill_excel(
 
     try:
 
-        # cargar perfil empresa
-        with open(
-            "storage/company_profile.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
+        # =====================================
+        # VALIDATE FORMAT
+        # =====================================
 
-            company_data = f.read()
+        valid_extensions = (
+            ".xlsx",
+            ".xlsm"
+        )
 
-        # guardar excel
+        if not file.filename.lower().endswith(valid_extensions):
+
+            return {
+                "status": "error",
+                "detail": (
+                    "Formato no soportado. "
+                    "Use .xlsx o .xlsm"
+                )
+            }
+
+        company_data = load_company_data()
+
         os.makedirs(
-            "storage/forms",
+            "storage/temp",
             exist_ok=True
         )
 
-        excel_path = (
-            f"storage/forms/{file.filename}"
+        input_path = (
+            f"storage/temp/{uuid.uuid4()}.xlsx"
         )
 
-        with open(excel_path, "wb") as temp_file:
+        with open(input_path, "wb") as f:
 
-            temp_file.write(await file.read())
+            shutil.copyfileobj(file.file, f)
 
-        # abrir excel
-        workbook = load_workbook(excel_path)
+        # =====================================
+        # OPEN EXCEL
+        # =====================================
 
-        # recorrer hojas
-        for sheet in workbook.worksheets:
+        wb = load_workbook(input_path)
 
-            # recorrer celdas
-            for row in sheet.iter_rows():
+        # =====================================
+        # PROCESS SHEETS
+        # =====================================
+
+        for ws in wb.worksheets:
+
+            for row in ws.iter_rows():
 
                 for cell in row:
 
                     if cell.value is None:
                         continue
 
-                    text = str(cell.value)
+                    cell_text = str(cell.value).lower()
 
-                    if len(text.strip()) == 0:
-                        continue
+                    for key, value in company_data.items():
 
-                    # IA responde
-                    response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": f"""
-                                Eres un asistente que llena
-                                formularios empresariales.
+                        if value is None:
+                            continue
 
-                                Datos empresa:
+                        if key.lower() in cell_text:
 
-                                {company_data}
+                            # =====================
+                            # WRITE NEXT CELL
+                            # =====================
 
-                                Si el texto parece un campo,
-                                pregunta o etiqueta empresarial,
-                                devuelve SOLO el valor correcto.
+                            target_col = cell.column + 1
+                            target_row = cell.row
 
-                                Si no aplica,
-                                devuelve exactamente el mismo texto.
-                                """
-                            },
-                            {
-                                "role": "user",
-                                "content": text
-                            }
-                        ],
-                        temperature=0
-                    )
+                            ws.cell(
+                                row=target_row,
+                                column=target_col
+                            ).value = value
 
-                    new_value = (
-                        response
-                        .choices[0]
-                        .message
-                        .content
-                    )
+        # =====================================
+        # SAVE
+        # =====================================
 
-                    cell.value = new_value
-
-        # guardar resultado
         output_path = (
-            f"storage/forms/FILLED_{file.filename}"
+            f"storage/temp/FILLED_{uuid.uuid4()}.xlsx"
         )
 
-        workbook.save(output_path)
+        wb.save(output_path)
+
+        # =====================================
+        # RETURN FILE
+        # =====================================
 
         return FileResponse(
+
             output_path,
-            filename=f"FILLED_{file.filename}"
+
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+
+            filename="FILLED_EXCEL.xlsx"
         )
 
     except Exception as e:
 
         return {
+
             "status": "error",
+
             "detail": str(e),
+
             "trace": traceback.format_exc()
-        }    
+        }
