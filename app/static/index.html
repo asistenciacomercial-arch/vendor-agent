@@ -1,103 +1,114 @@
 <!DOCTYPE html>
 <html>
-
 <head>
     <title>Vendor Agent</title>
 
     <style>
 
-        body {
+        body{
             font-family: Arial;
-            padding: 40px;
-            background: #f4f4f4;
+            background:#f4f4f4;
+            padding:40px;
         }
 
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 700px;
-            margin: auto;
+        .card{
+            background:white;
+            padding:40px;
+            border-radius:20px;
+            max-width:900px;
+            margin:auto;
         }
 
-        button {
-            padding: 12px 20px;
-            background: #111827;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
+        button{
+            padding:15px 25px;
+            border:none;
+            background:#0f172a;
+            color:white;
+            border-radius:10px;
+            cursor:pointer;
+            margin-top:20px;
         }
 
-        pre {
-            background: #eee;
-            padding: 20px;
-            overflow: auto;
+        pre{
+            background:#eaeaea;
+            padding:20px;
+            overflow:auto;
         }
 
     </style>
 
 </head>
-
 <body>
 
-    <div class="container">
+<div class="card">
 
-        <h1>Vendor Agent</h1>
+    <h1>Vendor Agent</h1>
 
-        <p>Subir documentos empresa</p>
+    <p>Subir documentos empresa</p>
 
-        <input
-            type="file"
-            id="files"
-            multiple
-        >
+    <input
+        type="file"
+        id="files"
+        multiple
+    >
 
-        <br><br>
+    <br>
 
-        <button onclick="uploadFiles()">
-            Subir documentos
-        </button>
+    <button onclick="uploadFiles()">
+        Subir documentos
+    </button>
 
-        <h2>Resultado</h2>
+    <h2>Resultado</h2>
 
-        <pre id="result"></pre>
+    <pre id="result"></pre>
 
-    </div>
+</div>
 
-    <script>
+<script>
 
-        async function uploadFiles() {
+async function uploadFiles(){
 
-            const input = document.getElementById("files")
+    const filesInput =
+        document.getElementById("files")
 
-            const files = input.files
+    const result =
+        document.getElementById("result")
 
-            const formData = new FormData()
+    const formData = new FormData()
 
-            for (let i = 0; i < files.length; i++) {
+    for(let i = 0; i < filesInput.files.length; i++){
 
-                formData.append("files", files[i])
+        formData.append(
+            "files",
+            filesInput.files[i]
+        )
+    }
 
+    result.innerText = "Procesando..."
+
+    try{
+
+        const response = await fetch(
+            "/upload-company-documents",
+            {
+                method:"POST",
+                body:formData
             }
+        )
 
-            const response = await fetch(
-                "/upload-company-documents",
-                {
-                    method: "POST",
-                    body: formData
-                }
-            )
+        const data = await response.json()
 
-            const data = await response.json()
+        result.innerText =
+            JSON.stringify(data, null, 2)
 
-            document.getElementById("result").textContent =
-                JSON.stringify(data, null, 2)
+    }catch(error){
 
-        }
+        result.innerText =
+            JSON.stringify(error, null, 2)
+    }
+}
 
-    </script>
+</script>
 
 </body>
-
 </html>
