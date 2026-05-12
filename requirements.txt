@@ -4,7 +4,8 @@ python-multipart
 pdfplumber
 pdf2image
 pytesseract
-openai
 python-docx
 openpyxl
-Pillow
+xlrd==1.2.0
+openai
+pillow
