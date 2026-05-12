@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html>
+
 <head>
+
     <title>Vendor Agent</title>
 
     <style>
@@ -33,18 +35,29 @@
             background:#eaeaea;
             padding:20px;
             overflow:auto;
+            white-space: pre-wrap;
+        }
+
+        hr{
+            margin-top:40px;
+            margin-bottom:40px;
         }
 
     </style>
 
 </head>
+
 <body>
 
 <div class="card">
 
     <h1>Vendor Agent</h1>
 
-    <p>Subir documentos empresa</p>
+    <!-- ========================= -->
+    <!-- COMPANY DOCUMENTS -->
+    <!-- ========================= -->
+
+    <h2>Subir documentos empresa</h2>
 
     <input
         type="file"
@@ -58,6 +71,32 @@
         Subir documentos
     </button>
 
+    <hr>
+
+    <!-- ========================= -->
+    <!-- WORD FORM -->
+    <!-- ========================= -->
+
+    <h2>Subir formulario Word</h2>
+
+    <input
+        type="file"
+        id="wordFile"
+        accept=".docx"
+    >
+
+    <br>
+
+    <button onclick="fillWord()">
+        Llenar Word
+    </button>
+
+    <hr>
+
+    <!-- ========================= -->
+    <!-- RESULT -->
+    <!-- ========================= -->
+
     <h2>Resultado</h2>
 
     <pre id="result"></pre>
@@ -66,49 +105,116 @@
 
 <script>
 
-async function uploadFiles(){
+    // =========================
+    // UPLOAD COMPANY DOCUMENTS
+    // =========================
 
-    const filesInput =
-        document.getElementById("files")
+    async function uploadFiles(){
 
-    const result =
-        document.getElementById("result")
+        const filesInput =
+            document.getElementById("files")
 
-    const formData = new FormData()
+        const result =
+            document.getElementById("result")
 
-    for(let i = 0; i < filesInput.files.length; i++){
+        const formData = new FormData()
+
+        for(let i = 0; i < filesInput.files.length; i++){
+
+            formData.append(
+                "files",
+                filesInput.files[i]
+            )
+        }
+
+        result.innerText =
+            "Procesando documentos empresa..."
+
+        try{
+
+            const response = await fetch(
+                "/upload-company-documents",
+                {
+                    method:"POST",
+                    body:formData
+                }
+            )
+
+            const data = await response.json()
+
+            result.innerText =
+                JSON.stringify(data, null, 2)
+
+        }catch(error){
+
+            result.innerText =
+                JSON.stringify(error, null, 2)
+        }
+    }
+
+    // =========================
+    // FILL WORD
+    // =========================
+
+    async function fillWord(){
+
+        const input =
+            document.getElementById("wordFile")
+
+        const result =
+            document.getElementById("result")
+
+        const formData = new FormData()
 
         formData.append(
-            "files",
-            filesInput.files[i]
-        )
-    }
-
-    result.innerText = "Procesando..."
-
-    try{
-
-        const response = await fetch(
-            "/upload-company-documents",
-            {
-                method:"POST",
-                body:formData
-            }
+            "file",
+            input.files[0]
         )
 
-        const data = await response.json()
-
         result.innerText =
-            JSON.stringify(data, null, 2)
+            "Llenando formulario Word..."
 
-    }catch(error){
+        try{
 
-        result.innerText =
-            JSON.stringify(error, null, 2)
+            const response = await fetch(
+                "/fill-word",
+                {
+                    method:"POST",
+                    body:formData
+                }
+            )
+
+            // descargar archivo
+            const blob = await response.blob()
+
+            const url =
+                window.URL.createObjectURL(blob)
+
+            const a =
+                document.createElement("a")
+
+            a.href = url
+
+            a.download = "FILLED_FORM.docx"
+
+            document.body.appendChild(a)
+
+            a.click()
+
+            a.remove()
+
+            result.innerText =
+                "Word generado correctamente"
+
+        }catch(error){
+
+            result.innerText =
+                JSON.stringify(error, null, 2)
+        }
     }
-}
 
 </script>
 
 </body>
+
 </html>
