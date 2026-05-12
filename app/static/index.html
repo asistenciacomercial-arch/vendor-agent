@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Vendor Agent</title>
+
+    <style>
+
+        body {
+            font-family: Arial;
+            padding: 40px;
+            background: #f4f4f4;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 700px;
+            margin: auto;
+        }
+
+        button {
+            padding: 12px 20px;
+            background: #111827;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        pre {
+            background: #eee;
+            padding: 20px;
+            overflow: auto;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>Vendor Agent</h1>
+
+        <p>Subir documentos empresa</p>
+
+        <input
+            type="file"
+            id="files"
+            multiple
+        >
+
+        <br><br>
+
+        <button onclick="uploadFiles()">
+            Subir documentos
+        </button>
+
+        <h2>Resultado</h2>
+
+        <pre id="result"></pre>
+
+    </div>
+
+    <script>
+
+        async function uploadFiles() {
+
+            const input = document.getElementById("files")
+
+            const files = input.files
+
+            const formData = new FormData()
+
+            for (let i = 0; i < files.length; i++) {
+
+                formData.append("files", files[i])
+
+            }
+
+            const response = await fetch(
+                "/upload-company-documents",
+                {
+                    method: "POST",
+                    body: formData
+                }
+            )
+
+            const data = await response.json()
+
+            document.getElementById("result").textContent =
+                JSON.stringify(data, null, 2)
+
+        }
+
+    </script>
+
+</body>
+
+</html>

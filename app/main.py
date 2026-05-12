@@ -1,3 +1,5 @@
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi import FastAPI, UploadFile, File
 import pdfplumber
 import os
@@ -6,9 +8,12 @@ import re
 from typing import Annotated
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+@app.get("/app")
+def app_page():
 
-@app.get("/")
+    return FileResponse("app/static/index.html")
 def root():
     return {
         "status": "vendor-agent-running"
