@@ -1,3 +1,5 @@
+from pdf2image import convert_from_path
+import pytesseract
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi import FastAPI, UploadFile, File
@@ -19,23 +21,39 @@ def root():
         "status": "vendor-agent-running"
     }
 
-
 def extract_text_from_pdf(pdf_path):
 
     text = ""
 
-    with pdfplumber.open(pdf_path) as pdf:
+    try:
 
-        for page in pdf.pages:
+        with pdfplumber.open(pdf_path) as pdf:
 
-            page_text = page.extract_text()
+            for page in pdf.pages:
 
-            if page_text:
-                text += page_text + "\n"
+                page_text = page.extract_text()
+
+                if page_text:
+                    text += page_text + "\n"
+
+    except:
+        pass
+
+    if text.strip() == "":
+
+        images = convert_from_path(pdf_path)
+
+        for image in images:
+
+            ocr_text = pytesseract.image_to_string(
+                image,
+                lang="eng"
+            )
+
+            text += ocr_text + "\n"
 
     return text
-
-
+    
 def extract_company_data(text):
 
     data = {}
