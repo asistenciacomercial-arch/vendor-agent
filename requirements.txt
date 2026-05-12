@@ -2,7 +2,9 @@ fastapi
 uvicorn
 python-multipart
 pdfplumber
+pdf2image
+pytesseract
 openai
-pypdfium2
 python-docx
 openpyxl
+Pillow
