@@ -3,6 +3,7 @@ import pdfplumber
 import os
 import json
 import re
+from typing import Annotated
 
 app = FastAPI()
 
@@ -57,7 +58,10 @@ def extract_company_data(text):
 
 @app.post("/upload-company-documents")
 async def upload_company_documents(
-    files: list[UploadFile] = File(...)
+    files: Annotated[
+        list[UploadFile],
+        File(description="Multiple PDF files")
+    ]
 ):
 
     all_text = ""
