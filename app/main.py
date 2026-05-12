@@ -5,6 +5,7 @@ from fastapi import FastAPI, UploadFile, File
 import pdfplumber
 import os
 import traceback
+from docx import Document
 
 app = FastAPI()
 
@@ -148,6 +149,14 @@ async def upload_company_documents(
         # IA
         ai_response = extract_with_ai(all_text)
 
+        with open(
+            "storage/company_profile.json",
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(ai_response)
+
         return {
             "status": "success",
             "message": "Documents processed",
@@ -162,3 +171,103 @@ async def upload_company_documents(
             "detail": str(e),
             "trace": traceback.format_exc()
         }
+
+@app.post("/fill-word")
+async def fill_word(
+    file: UploadFile = File(...)
+):
+
+    try:
+
+        # cargar perfil empresa
+        with open(
+            "storage/company_profile.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            company_data = f.read()
+
+        # guardar word temporal
+        os.makedirs(
+            "storage/forms",
+            exist_ok=True
+        )
+
+        form_path = (
+            f"storage/forms/{file.filename}"
+        )
+
+        with open(form_path, "wb") as temp_file:
+
+            temp_file.write(await file.read())
+
+        # abrir word
+        doc = Document(form_path)
+
+        # recorrer párrafos
+        for paragraph in doc.paragraphs:
+
+            text = paragraph.text
+
+            if not text.strip():
+                continue
+
+            # IA decide reemplazos
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"""
+                        Eres un asistente que llena
+                        formularios empresariales.
+
+                        Datos empresa:
+
+                        {company_data}
+
+                        Si el texto contiene un campo
+                        o pregunta empresarial,
+                        devuelve SOLO el valor correcto.
+
+                        Si no aplica,
+                        devuelve exactamente el mismo texto.
+                        """
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                temperature=0
+            )
+
+            new_text = (
+                response
+                .choices[0]
+                .message
+                .content
+            )
+
+            paragraph.text = new_text
+
+        # guardar resultado
+        output_path = (
+            f"storage/forms/FILLED_{file.filename}"
+        )
+
+        doc.save(output_path)
+
+        return FileResponse(
+            output_path,
+            filename=f"FILLED_{file.filename}"
+        )
+
+    except Exception as e:
+
+        return {
+            "status": "error",
+            "detail": str(e),
+            "trace": traceback.format_exc()
+        }        
