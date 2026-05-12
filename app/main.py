@@ -1,5 +1,4 @@
 from fastapi import FastAPI, UploadFile, File
-from typing import List
 import pdfplumber
 import tempfile
 import os
@@ -59,7 +58,7 @@ def extract_company_data(text):
 
 @app.post("/upload-company-documents")
 async def upload_company_documents(
-    files: List[UploadFile] = File(...)
+    ffiles: list[UploadFile] = File(...)
 ):
 
     all_text = ""
