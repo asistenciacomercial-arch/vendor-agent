@@ -74,15 +74,18 @@ async def upload_company_documents(
     os.makedirs("storage/company_docs", exist_ok=True)
 
     for file in files:
-
+        if not file.filename.lower().endswith(".pdf"):
+         continue
         file_path = f"storage/company_docs/{file.filename}"
 
+        print("Processing:", file.filename)
+        
         with open(file_path, "wb") as f:
             f.write(await file.read())
 
         text = extract_text_from_pdf(file_path)
 
-        all_text += text + "\n"
+        all_text += text[:5000] + "\n"
 
     company_data = extract_company_data(all_text)
 
