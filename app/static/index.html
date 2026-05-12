@@ -92,6 +92,21 @@
     </button>
 
     <hr>
+    <hr>
+
+    <h2>Subir formulario Excel</h2>
+
+    <input
+        type="file"
+        id="excelFile"
+        accept=".xlsx,.xlsm"
+    >
+
+    <br>
+
+    <button onclick="fillExcel()">
+        Llenar Excel
+    </button>
 
     <!-- ========================= -->
     <!-- RESULT -->
@@ -212,7 +227,61 @@
                 JSON.stringify(error, null, 2)
         }
     }
+    async function fillExcel(){
 
+    const input =
+        document.getElementById("excelFile")
+
+    const result =
+        document.getElementById("result")
+
+    const formData = new FormData()
+
+    formData.append(
+        "file",
+        input.files[0]
+    )
+
+    result.innerText =
+        "Llenando Excel..."
+
+    try{
+
+        const response = await fetch(
+            "/fill-excel",
+            {
+                method:"POST",
+                body:formData
+            }
+        )
+
+        const blob = await response.blob()
+
+        const url =
+            window.URL.createObjectURL(blob)
+
+        const a =
+            document.createElement("a")
+
+        a.href = url
+
+        a.download = "FILLED_EXCEL.xlsx"
+
+        document.body.appendChild(a)
+
+        a.click()
+
+        a.remove()
+
+        result.innerText =
+            "Excel generado correctamente"
+
+    }catch(error){
+
+        result.innerText =
+            JSON.stringify(error, null, 2)
+    }
+}
 </script>
 
 </body>

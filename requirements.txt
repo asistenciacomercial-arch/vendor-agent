@@ -5,3 +5,4 @@ pdfplumber
 openai
 pypdfium2
 python-docx
+openpyxl
