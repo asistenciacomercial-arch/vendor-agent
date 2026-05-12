@@ -8,9 +8,18 @@ import traceback
 
 app = FastAPI()
 
+# =========================
+# GROQ CLIENT
+# =========================
+
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1"
 )
+
+# =========================
+# STATIC FILES
+# =========================
 
 app.mount(
     "/static",
@@ -18,6 +27,9 @@ app.mount(
     name="static"
 )
 
+# =========================
+# ROOT
+# =========================
 
 @app.get("/")
 def root():
@@ -26,12 +38,18 @@ def root():
         "status": "vendor-agent-running"
     }
 
+# =========================
+# FRONTEND
+# =========================
 
 @app.get("/app")
 def app_page():
 
     return FileResponse("app/static/index.html")
 
+# =========================
+# PDF TEXT EXTRACTION
+# =========================
 
 def extract_text_from_pdf(pdf_path):
 
@@ -48,17 +66,20 @@ def extract_text_from_pdf(pdf_path):
 
     return text
 
+# =========================
+# AI EXTRACTION
+# =========================
 
 def extract_with_ai(text):
 
     response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "system",
                 "content": """
                 Extrae información empresarial
-                de documentos legales y devuelve
+                desde documentos legales y devuelve
                 JSON limpio.
 
                 Extrae:
@@ -72,6 +93,7 @@ def extract_with_ai(text):
                 - banco
                 - numero_cuenta
                 - tipo_cuenta
+                - ciudad
                 """
             },
             {
@@ -84,6 +106,9 @@ def extract_with_ai(text):
 
     return response.choices[0].message.content
 
+# =========================
+# UPLOAD COMPANY DOCUMENTS
+# =========================
 
 @app.post("/upload-company-documents")
 async def upload_company_documents(
@@ -101,21 +126,30 @@ async def upload_company_documents(
 
         for file in files:
 
+            # Solo PDFs
+            if not file.filename.lower().endswith(".pdf"):
+                continue
+
             file_path = (
                 f"storage/company_docs/{file.filename}"
             )
 
+            # Guardar archivo
             with open(file_path, "wb") as f:
 
                 f.write(await file.read())
 
+            # Extraer texto
             text = extract_text_from_pdf(file_path)
 
-            all_text += text + "\n"
+            # Limitar tamaño
+            all_text += text[:5000] + "\n"
 
+        # IA
         ai_response = extract_with_ai(all_text)
 
         return {
+            "status": "success",
             "message": "Documents processed",
             "ai_response": ai_response,
             "preview_text": all_text[:3000]
