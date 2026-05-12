@@ -1,25 +1,26 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+from openai import OpenAI
 
 from openpyxl import load_workbook
 from docx import Document
 from pdf2image import convert_from_path
 
-from openai import OpenAI
+from copy import copy
 
 import pytesseract
 import pdfplumber
-import shutil
 import traceback
-import tempfile
-import uuid
+import openpyxl
+import shutil
+import xlrd
 import json
-import re
 import os
 
 # =========================================================
-# APP
+# FASTAPI
 # =========================================================
 
 app = FastAPI()
@@ -31,11 +32,12 @@ app.mount(
 )
 
 # =========================================================
-# OPENAI
+# GROQ CLIENT
 # =========================================================
 
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1"
 )
 
 # =========================================================
@@ -59,16 +61,82 @@ def app_page():
     return FileResponse("app/static/index.html")
 
 # =========================================================
-# PDF TEXT EXTRACTION
+# FIELD MAPPINGS
+# =========================================================
+
+FIELD_MAPPINGS = {
+
+    "empresa": [
+        "razón social",
+        "razon social",
+        "empresa",
+        "nombre empresa",
+        "company name"
+    ],
+
+    "nit": [
+        "nit",
+        "tax id",
+        "identificación tributaria",
+        "identificacion tributaria"
+    ],
+
+    "direccion": [
+        "dirección",
+        "direccion",
+        "address"
+    ],
+
+    "telefono": [
+        "teléfono",
+        "telefono",
+        "celular",
+        "phone"
+    ],
+
+    "email": [
+        "correo",
+        "correo electrónico",
+        "correo electronico",
+        "email",
+        "e-mail"
+    ],
+
+    "representante_legal": [
+        "representante legal",
+        "nombre representante",
+        "legal representative"
+    ],
+
+    "banco": [
+        "banco",
+        "bank"
+    ],
+
+    "numero_cuenta": [
+        "número de cuenta",
+        "numero de cuenta",
+        "account number"
+    ],
+
+    "tipo_cuenta": [
+        "tipo de cuenta",
+        "account type"
+    ],
+
+    "ciudad": [
+        "ciudad",
+        "city"
+    ]
+}
+
+# =========================================================
+# PDF EXTRACTION
 # =========================================================
 
 def extract_text_from_pdf(pdf_path):
 
     text = ""
-
-    # ==========================
-    # NORMAL PDF EXTRACTION
-    # ==========================
 
     try:
 
@@ -84,10 +152,7 @@ def extract_text_from_pdf(pdf_path):
     except:
         pass
 
-    # ==========================
-    # OCR FALLBACK
-    # ==========================
-
+    # OCR fallback
     if text.strip() == "":
 
         try:
@@ -98,7 +163,7 @@ def extract_text_from_pdf(pdf_path):
 
                 ocr_text = pytesseract.image_to_string(
                     image,
-                    lang="eng"
+                    lang="spa"
                 )
 
                 text += ocr_text + "\n"
@@ -116,7 +181,7 @@ def extract_with_ai(text):
 
     response = client.chat.completions.create(
 
-        model="gpt-4.1-mini",
+        model="llama-3.3-70b-versatile",
 
         messages=[
 
@@ -124,23 +189,22 @@ def extract_with_ai(text):
                 "role": "system",
                 "content": """
                 Extrae información empresarial
-                de documentos legales y devuelve
-                JSON limpio.
-
-                Extrae:
-
-                - empresa
-                - nit
-                - representante_legal
-                - email
-                - telefono
-                - direccion
-                - banco
-                - numero_cuenta
-                - tipo_cuenta
-                - ciudad
+                desde documentos legales.
 
                 Devuelve SOLO JSON válido.
+
+                {
+                  "empresa":"",
+                  "nit":"",
+                  "representante_legal":"",
+                  "direccion":"",
+                  "telefono":"",
+                  "email":"",
+                  "banco":"",
+                  "numero_cuenta":"",
+                  "tipo_cuenta":"",
+                  "ciudad":""
+                }
                 """
             },
 
@@ -149,32 +213,15 @@ def extract_with_ai(text):
                 "content": text[:15000]
             }
 
-        ]
+        ],
+
+        temperature=0
     )
 
     return response.choices[0].message.content
 
 # =========================================================
-# SAFE JSON PARSER
-# =========================================================
-
-def parse_ai_json(ai_response):
-
-    try:
-
-        cleaned = ai_response.strip()
-
-        cleaned = cleaned.replace("```json", "")
-        cleaned = cleaned.replace("```", "")
-
-        return json.loads(cleaned)
-
-    except:
-
-        return {}
-
-# =========================================================
-# DOCUMENT PROCESSING
+# PROCESS COMPANY DOCUMENTS
 # =========================================================
 
 @app.post("/upload-company-documents")
@@ -191,10 +238,6 @@ async def upload_company_documents(
 
         all_text = ""
 
-        # =====================================
-        # SAVE + READ FILES
-        # =====================================
-
         for file in files:
 
             file_path = (
@@ -205,9 +248,9 @@ async def upload_company_documents(
 
                 f.write(await file.read())
 
-            # ==========================
+            # =====================================
             # PDF
-            # ==========================
+            # =====================================
 
             if file.filename.lower().endswith(".pdf"):
 
@@ -215,16 +258,85 @@ async def upload_company_documents(
 
                 all_text += text + "\n"
 
+            # =====================================
+            # DOCX
+            # =====================================
+
+            elif file.filename.lower().endswith(".docx"):
+
+                doc = Document(file_path)
+
+                for paragraph in doc.paragraphs:
+
+                    all_text += paragraph.text + "\n"
+
+            # =====================================
+            # XLSX
+            # =====================================
+
+            elif file.filename.lower().endswith(".xlsx"):
+
+                workbook = load_workbook(file_path)
+
+                for sheet in workbook.worksheets:
+
+                    for row in sheet.iter_rows():
+
+                        for cell in row:
+
+                            if cell.value:
+
+                                all_text += (
+                                    str(cell.value) + "\n"
+                                )
+
+            # =====================================
+            # XLS
+            # =====================================
+
+            elif file.filename.lower().endswith(".xls"):
+
+                workbook = xlrd.open_workbook(file_path)
+
+                for sheet in workbook.sheets():
+
+                    for row_idx in range(sheet.nrows):
+
+                        row = sheet.row_values(row_idx)
+
+                        for value in row:
+
+                            if value:
+
+                                all_text += (
+                                    str(value) + "\n"
+                                )
+
         # =====================================
-        # AI EXTRACTION
+        # AI
         # =====================================
 
         ai_response = extract_with_ai(all_text)
 
-        company_data = parse_ai_json(ai_response)
+        try:
+
+            cleaned = (
+                ai_response
+                .replace("```json", "")
+                .replace("```", "")
+                .strip()
+            )
+
+            company_data = json.loads(cleaned)
+
+        except:
+
+            company_data = {
+                "raw_response": ai_response
+            }
 
         # =====================================
-        # SAVE PROFILE
+        # SAVE COMPANY DATA
         # =====================================
 
         os.makedirs(
@@ -268,26 +380,6 @@ async def upload_company_documents(
         }
 
 # =========================================================
-# LOAD COMPANY DATA
-# =========================================================
-
-def load_company_data():
-
-    try:
-
-        with open(
-            "storage/company_data.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            return json.load(f)
-
-    except:
-
-        return {}
-
-# =========================================================
 # FILL WORD
 # =========================================================
 
@@ -298,24 +390,26 @@ async def fill_word(
 
     try:
 
-        company_data = load_company_data()
+        with open(
+            "storage/company_data.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            company_data = json.load(f)
 
         os.makedirs(
-            "storage/temp",
+            "storage/generated",
             exist_ok=True
         )
 
         input_path = (
-            f"storage/temp/{uuid.uuid4()}.docx"
+            f"storage/generated/{file.filename}"
         )
 
         with open(input_path, "wb") as f:
 
-            shutil.copyfileobj(file.file, f)
-
-        # =====================================
-        # OPEN WORD
-        # =====================================
+            f.write(await file.read())
 
         doc = Document(input_path)
 
@@ -325,16 +419,30 @@ async def fill_word(
 
         for paragraph in doc.paragraphs:
 
-            for key, value in company_data.items():
+            text = paragraph.text.lower()
 
-                if value is None:
+            for field, aliases in FIELD_MAPPINGS.items():
+
+                matched = False
+
+                for alias in aliases:
+
+                    if alias in text:
+
+                        matched = True
+                        break
+
+                if not matched:
                     continue
 
-                if key.lower() in paragraph.text.lower():
+                value = company_data.get(field)
 
-                    paragraph.text = (
-                        f"{paragraph.text} {value}"
-                    )
+                if not value:
+                    continue
+
+                paragraph.text = (
+                    paragraph.text + " " + str(value)
+                )
 
         # =====================================
         # TABLES
@@ -346,36 +454,43 @@ async def fill_word(
 
                 for cell in row.cells:
 
-                    for key, value in company_data.items():
+                    cell_text = cell.text.lower()
 
-                        if value is None:
+                    for field, aliases in FIELD_MAPPINGS.items():
+
+                        matched = False
+
+                        for alias in aliases:
+
+                            if alias in cell_text:
+
+                                matched = True
+                                break
+
+                        if not matched:
                             continue
 
-                        if key.lower() in cell.text.lower():
+                        value = company_data.get(field)
 
-                            cell.text = (
-                                f"{cell.text} {value}"
-                            )
+                        if not value:
+                            continue
 
-        # =====================================
-        # SAVE
-        # =====================================
+                        cell.text = (
+                            cell.text + " " + str(value)
+                        )
 
         output_path = (
-            f"storage/temp/FILLED_{uuid.uuid4()}.docx"
+            "storage/generated/FILLED_WORD.docx"
         )
 
         doc.save(output_path)
 
         return FileResponse(
-
             output_path,
-
+            filename="FILLED_WORD.docx",
             media_type=(
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ),
-
-            filename="FILLED_WORD.docx"
+            )
         )
 
     except Exception as e:
@@ -401,7 +516,7 @@ async def fill_excel(
     try:
 
         # =====================================
-        # VALIDATE FORMAT
+        # VALIDATE
         # =====================================
 
         valid_extensions = (
@@ -419,32 +534,46 @@ async def fill_excel(
                 )
             }
 
-        company_data = load_company_data()
+        # =====================================
+        # LOAD COMPANY DATA
+        # =====================================
+
+        with open(
+            "storage/company_data.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            company_data = json.load(f)
+
+        # =====================================
+        # SAVE INPUT FILE
+        # =====================================
 
         os.makedirs(
-            "storage/temp",
+            "storage/generated",
             exist_ok=True
         )
 
         input_path = (
-            f"storage/temp/{uuid.uuid4()}.xlsx"
+            f"storage/generated/{file.filename}"
         )
 
         with open(input_path, "wb") as f:
 
-            shutil.copyfileobj(file.file, f)
+            f.write(await file.read())
 
         # =====================================
-        # OPEN EXCEL
+        # OPEN WORKBOOK
         # =====================================
 
-        wb = load_workbook(input_path)
+        workbook = load_workbook(input_path)
 
         # =====================================
         # PROCESS SHEETS
         # =====================================
 
-        for ws in wb.worksheets:
+        for ws in workbook.worksheets:
 
             for row in ws.iter_rows():
 
@@ -453,50 +582,118 @@ async def fill_excel(
                     if cell.value is None:
                         continue
 
-                    cell_text = str(cell.value).lower()
+                    cell_text = (
+                        str(cell.value)
+                        .strip()
+                        .lower()
+                    )
 
-                    for key, value in company_data.items():
+                    if len(cell_text) < 2:
+                        continue
 
-                        if value is None:
+                    # =================================
+                    # FIND MATCH
+                    # =================================
+
+                    for field, aliases in FIELD_MAPPINGS.items():
+
+                        matched = False
+
+                        for alias in aliases:
+
+                            if alias in cell_text:
+
+                                matched = True
+                                break
+
+                        if not matched:
                             continue
 
-                        if key.lower() in cell_text:
+                        value = company_data.get(field)
 
-                            # =====================
-                            # WRITE NEXT CELL
-                            # =====================
+                        if not value:
+                            continue
 
-                            target_col = cell.column + 1
-                            target_row = cell.row
+                        # =============================
+                        # TARGET CELL
+                        # =============================
 
-                            ws.cell(
-                                row=target_row,
-                                column=target_col
-                            ).value = value
+                        target_col = cell.column + 1
+                        target_row = cell.row
+
+                        target_cell = ws.cell(
+                            row=target_row,
+                            column=target_col
+                        )
+
+                        # =============================
+                        # ONLY EMPTY CELLS
+                        # =============================
+
+                        if (
+                            target_cell.value is None
+                            or str(target_cell.value).strip() == ""
+                        ):
+
+                            target_cell.value = value
+
+                            # =========================
+                            # COPY STYLE
+                            # =========================
+
+                            if cell.has_style:
+
+                                target_cell._style = (
+                                    copy(cell._style)
+                                )
+
+                            if cell.font:
+                                target_cell.font = (
+                                    copy(cell.font)
+                                )
+
+                            if cell.fill:
+                                target_cell.fill = (
+                                    copy(cell.fill)
+                                )
+
+                            if cell.border:
+                                target_cell.border = (
+                                    copy(cell.border)
+                                )
+
+                            if cell.alignment:
+                                target_cell.alignment = (
+                                    copy(cell.alignment)
+                                )
+
+                            if cell.number_format:
+                                target_cell.number_format = (
+                                    cell.number_format
+                                )
+
+                            if cell.protection:
+                                target_cell.protection = (
+                                    copy(cell.protection)
+                                )
 
         # =====================================
-        # SAVE
+        # SAVE OUTPUT
         # =====================================
 
         output_path = (
-            f"storage/temp/FILLED_{uuid.uuid4()}.xlsx"
+            "storage/generated/"
+            "FILLED_EXCEL.xlsx"
         )
 
-        wb.save(output_path)
-
-        # =====================================
-        # RETURN FILE
-        # =====================================
+        workbook.save(output_path)
 
         return FileResponse(
-
             output_path,
-
+            filename="FILLED_EXCEL.xlsx",
             media_type=(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-
-            filename="FILLED_EXCEL.xlsx"
+            )
         )
 
     except Exception as e:
