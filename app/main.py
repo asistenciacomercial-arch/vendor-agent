@@ -1,3 +1,4 @@
+from openai import OpenAI
 from pdf2image import convert_from_path
 import pytesseract
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +11,9 @@ import re
 from typing import Annotated
 
 app = FastAPI()
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.get("/app")
@@ -53,18 +57,70 @@ def extract_text_from_pdf(pdf_path):
             text += ocr_text + "\n"
 
     return text
-    
+
+def extract_with_ai(text):
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": """
+                Extrae información empresarial
+                de documentos legales y devuelve
+                JSON limpio.
+
+                Extrae:
+                - empresa
+                - nit
+                - representante legal
+                - email
+                - teléfono
+                - dirección
+                - banco
+                - numero_cuenta
+                """
+            },
+            {
+                "role": "user",
+                "content": text[:15000]
+            }
+        ]
+    )
+
+    return response.choices[0].message.content
+
 def extract_company_data(text):
 
     data = {}
 
-    nit_match = re.search(r'\d{3}\d{3}\d{3}-\d', text)
+    nit_match = re.search(
+        r'(\d{3}[.,]?\d{3}[.,]?\d{3}-?\d)',
+        text
+    )
 
     if nit_match:
         data["nit"] = nit_match.group()
 
-    empresa_match = re.search(r'ZEHIRUT LTDA', text)
+    email_match = re.search(
+        r'[\w\.-]+@[\w\.-]+\.\w+',
+        text
+    )
 
+    if email_match:
+        data["email"] = email_match.group()
+
+    empresa_match = re.search(
+        r'([A-Z\s]+(?:LTDA|SAS|SA|S\.A\.S\.|LIMITADA))',
+        text
+    )
+    phone_match = re.search(
+        r'(\+57\s?\d{10}|\d{7,10})',
+        text
+    )
+
+    if phone_match:
+        data["telefono"] = phone_match.group()
     if empresa_match:
         data["empresa"] = empresa_match.group()
 
@@ -105,15 +161,11 @@ async def upload_company_documents(
 
         all_text += text[:5000] + "\n"
 
-    company_data = extract_company_data(all_text)
+    company_data = extract_with_ai(all_text)
 
     with open("storage/company_data.json", "w") as json_file:
 
-        json.dump(
-            company_data,
-            json_file,
-            indent=4
-        )
+        json_file.write(company_data)
 
     return {
     "message": "Documents processed",

@@ -9,3 +9,4 @@ requests
 pytesseract
 pdf2image
 Pillow
+openai
