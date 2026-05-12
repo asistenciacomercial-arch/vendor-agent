@@ -688,12 +688,21 @@ async def fill_excel(
 
         workbook.save(output_path)
 
+        extension = os.path.splitext(file.filename)[1]
+
+        output_path = f"storage/FILLED_EXCEL{extension}"
+
+        if extension == ".xlsx":
+
+            workbook.save(output_path)
+
+        elif extension == ".xls":
+
+            workbook.save(output_path)
+
         return FileResponse(
             output_path,
-            filename="FILLED_EXCEL.xlsx",
-            media_type=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            filename=f"FILLED_EXCEL{extension}"
         )
 
     except Exception as e:
