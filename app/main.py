@@ -137,38 +137,36 @@ def extract_company_data(text):
 
 @app.post("/upload-company-documents")
 async def upload_company_documents(
-    files: Annotated[
-        list[UploadFile],
-        File(description="Multiple PDF files")
-    ]
+    files: list[UploadFile] = File(...)
 ):
 
-    all_text = ""
+    try:
 
-    os.makedirs("storage/company_docs", exist_ok=True)
+        all_text = ""
 
-    for file in files:
-        if not file.filename.lower().endswith(".pdf"):
-         continue
-        file_path = f"storage/company_docs/{file.filename}"
+        os.makedirs("storage/company_docs", exist_ok=True)
 
-        print("Processing:", file.filename)
-        
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
+        for file in files:
 
-        text = extract_text_from_pdf(file_path)
+            file_path = f"storage/company_docs/{file.filename}"
 
-        all_text += text[:5000] + "\n"
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
 
-    company_data = extract_with_ai(all_text)
+            text = extract_text_from_pdf(file_path)
 
-    with open("storage/company_data.json", "w") as json_file:
+            all_text += text + "\n"
 
-        json_file.write(company_data)
+        ai_response = extract_with_ai(all_text)
 
-    return {
-    "message": "Documents processed",
-    "company_data": company_data,
-    "preview_text": all_text[:3000]
-}
+        return {
+            "message": "Documents processed",
+            "ai_response": ai_response
+        }
+
+    except Exception as e:
+
+        return {
+            "status": "error",
+            "detail": str(e)
+        }
