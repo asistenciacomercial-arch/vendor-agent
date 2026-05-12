@@ -98,6 +98,7 @@ async def upload_company_documents(
         )
 
     return {
-        "message": "Documents processed",
-        "company_data": company_data
-    }
+    "message": "Documents processed",
+    "company_data": company_data,
+    "preview_text": all_text[:3000]
+}
