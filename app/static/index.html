@@ -265,7 +265,32 @@
 
         a.href = url
 
-        a.download = "FILLED_EXCEL.xlsx"
+        const disposition =
+            response.headers.get("content-disposition")
+        
+        let filename = "archivo"
+        
+        if(disposition){
+        
+            const match =
+                disposition.match(/filename="?([^"]+)"?/)
+        
+            if(match){
+                filename = match[1]
+            }
+        }
+        
+        const a =
+            document.createElement("a")
+        
+        a.href = url
+        a.download = filename
+        
+        document.body.appendChild(a)
+        
+        a.click()
+        
+        a.remove()
 
         document.body.appendChild(a)
 
