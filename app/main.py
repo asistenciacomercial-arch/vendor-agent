@@ -373,10 +373,6 @@ async def fill_excel(
         with open(input_path, "wb") as f:
             f.write(await file.read())
 
-        # =====================================
-        # LOAD COMPANY DATA
-        # =====================================
-
         with open(
             "storage/company_data.json",
             "r",
@@ -385,163 +381,28 @@ async def fill_excel(
 
             company_data = json.load(f)
 
-        # =====================================
-        # OPEN WORKBOOK
-        # =====================================
-
         workbook = load_workbook(
             input_path,
-            keep_vba=True,
-            data_only=False
+            keep_vba=True
         )
 
-        # =====================================
-        # PROCESS SHEETS
-        # =====================================
+        # SOLO PRIMERA HOJA
+        sheet = workbook.worksheets[0]
 
-        for sheet in workbook.worksheets:
-
-            for row in sheet.iter_rows():
-
-                for cell in row:
-
-                    # =========================
-                    # SOLO TEXTO
-                    # =========================
-
-                    if not isinstance(cell.value, str):
-                        continue
-
-                    text = cell.value.lower()
-
-                    target = None
-
-                    # =========================
-                    # DETECTAR CAMPOS
-                    # =========================
-
-                    if "razón social" in text \
-                    or "razon social" in text:
-
-                        target = company_data.get(
-                            "empresa"
-                        )
-
-                    elif "nit" in text:
-
-                        target = company_data.get(
-                            "nit"
-                        )
-
-                    elif "correo" in text \
-                    or "email" in text:
-
-                        target = company_data.get(
-                            "email"
-                        )
-
-                    elif "telefono" in text \
-                    or "teléfono" in text:
-
-                        target = company_data.get(
-                            "telefono"
-                        )
-
-                    elif "direccion" in text \
-                    or "dirección" in text:
-
-                        target = company_data.get(
-                            "direccion"
-                        )
-
-                    elif "representante legal" in text:
-
-                        target = company_data.get(
-                            "representante_legal"
-                        )
-
-                    # =========================
-                    # SI NO HAY VALOR
-                    # =========================
-
-                    if not target:
-                        continue
-
-                    # =========================
-                    # CELDA DERECHA
-                    # =========================
-
-                    target_cell = sheet.cell(
-                        row=cell.row,
-                        column=cell.column + 1
-                    )
-
-                    # =========================
-                    # NO TOCAR FÓRMULAS
-                    # =========================
-
-                    if isinstance(
-                        target_cell.value,
-                        str
-                    ):
-
-                        if target_cell.value.startswith("="):
-                            continue
-
-                    # =========================
-                    # NO TOCAR MERGED
-                    # =========================
-
-                    merged = False
-
-                    for merged_range in sheet.merged_cells.ranges:
-
-                        if target_cell.coordinate in merged_range:
-
-                            merged = True
-                            break
-
-                    if merged:
-                        continue
-
-                    # =========================
-                    # ESCRIBIR
-                    # =========================
-
-                    target_cell.value = str(target)
-
-        # =====================================
-        # GUARDAR
-        # =====================================
+        # SOLO UNA CELDA VACÍA SIMPLE
+        sheet["Z100"] = "TEST"
 
         extension = os.path.splitext(
             file.filename
         )[1]
 
-        output_path = (
-            f"storage/FILLED{extension}"
-        )
+        output_path = f"storage/TEST{extension}"
 
         workbook.save(output_path)
 
-        # =====================================
-        # RETORNAR
-        # =====================================
-
-        media = (
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        if extension == ".xlsm":
-
-            media = (
-                "application/vnd.ms-excel.sheet.macroEnabled.12"
-            )
-
         return FileResponse(
             output_path,
-            filename=f"FILLED{extension}",
-            media_type=media
+            filename=f"TEST{extension}"
         )
 
     except Exception as e:
