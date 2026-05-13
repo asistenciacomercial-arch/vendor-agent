@@ -1,30 +1,19 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from openai import OpenAI
+from docx import Document
 
 from openpyxl import load_workbook
-from docx import Document
-from pdf2image import convert_from_path
 
-from copy import copy
+import xlrd
+from xlutils.copy import copy
 
-import pytesseract
 import pdfplumber
-import traceback
-import openpyxl
-import shutil
-import xlrd
-import json
 import os
-import pandas as pd
-import xlrd
-import xlwt
-
-# =========================================================
-# FASTAPI
-# =========================================================
+import re
+import json
+import traceback
 
 app = FastAPI()
 
@@ -34,18 +23,9 @@ app.mount(
     name="static"
 )
 
-# =========================================================
-# GROQ CLIENT
-# =========================================================
-
-client = OpenAI(
-    api_key=os.getenv("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
-)
-
-# =========================================================
+# =========================
 # ROOT
-# =========================================================
+# =========================
 
 @app.get("/")
 def root():
@@ -54,88 +34,22 @@ def root():
         "status": "vendor-agent-running"
     }
 
-# =========================================================
+
+# =========================
 # FRONTEND
-# =========================================================
+# =========================
 
 @app.get("/app")
 def app_page():
 
-    return FileResponse("app/static/index.html")
+    return FileResponse(
+        "app/static/index.html"
+    )
 
-# =========================================================
-# FIELD MAPPINGS
-# =========================================================
 
-FIELD_MAPPINGS = {
-
-    "empresa": [
-        "razón social",
-        "razon social",
-        "empresa",
-        "nombre empresa",
-        "company name"
-    ],
-
-    "nit": [
-        "nit",
-        "tax id",
-        "identificación tributaria",
-        "identificacion tributaria"
-    ],
-
-    "direccion": [
-        "dirección",
-        "direccion",
-        "address"
-    ],
-
-    "telefono": [
-        "teléfono",
-        "telefono",
-        "celular",
-        "phone"
-    ],
-
-    "email": [
-        "correo",
-        "correo electrónico",
-        "correo electronico",
-        "email",
-        "e-mail"
-    ],
-
-    "representante_legal": [
-        "representante legal",
-        "nombre representante",
-        "legal representative"
-    ],
-
-    "banco": [
-        "banco",
-        "bank"
-    ],
-
-    "numero_cuenta": [
-        "número de cuenta",
-        "numero de cuenta",
-        "account number"
-    ],
-
-    "tipo_cuenta": [
-        "tipo de cuenta",
-        "account type"
-    ],
-
-    "ciudad": [
-        "ciudad",
-        "city"
-    ]
-}
-
-# =========================================================
-# PDF EXTRACTION
-# =========================================================
+# =========================
+# EXTRAER TEXTO PDF
+# =========================
 
 def extract_text_from_pdf(pdf_path):
 
@@ -152,80 +66,132 @@ def extract_text_from_pdf(pdf_path):
                 if page_text:
                     text += page_text + "\n"
 
-    except:
-        pass
+    except Exception as e:
 
-    # OCR fallback
-    if text.strip() == "":
-
-        try:
-
-            images = convert_from_path(pdf_path)
-
-            for image in images:
-
-                ocr_text = pytesseract.image_to_string(
-                    image,
-                    lang="spa"
-                )
-
-                text += ocr_text + "\n"
-
-        except:
-            pass
+        print("PDF ERROR:", e)
 
     return text
 
-# =========================================================
-# AI EXTRACTION
-# =========================================================
 
-def extract_with_ai(text):
+# =========================
+# EXTRAER DATOS EMPRESA
+# =========================
 
-    response = client.chat.completions.create(
+def extract_company_data(text):
 
-        model="llama-3.3-70b-versatile",
+    data = {}
 
-        messages=[
+    # =====================
+    # NIT
+    # =====================
 
-            {
-                "role": "system",
-                "content": """
-                Extrae información empresarial
-                desde documentos legales.
+    nit_patterns = [
 
-                Devuelve SOLO JSON válido.
+        r'NIT[:\s]+(\d{6,15})',
+        r'(\d{3}[.,]?\d{3}[.,]?\d{3}-?\d)',
+    ]
 
-                {
-                  "empresa":"",
-                  "nit":"",
-                  "representante_legal":"",
-                  "direccion":"",
-                  "telefono":"",
-                  "email":"",
-                  "banco":"",
-                  "numero_cuenta":"",
-                  "tipo_cuenta":"",
-                  "ciudad":""
-                }
-                """
-            },
+    for pattern in nit_patterns:
 
-            {
-                "role": "user",
-                "content": text[:15000]
-            }
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE
+        )
 
-        ],
+        if match:
 
-        temperature=0
+            data["nit"] = match.group(1)
+            break
+
+    # =====================
+    # EMAIL
+    # =====================
+
+    email_match = re.search(
+        r'[\w\.-]+@[\w\.-]+\.\w+',
+        text
     )
 
-    return response.choices[0].message.content
+    if email_match:
+        data["email"] = email_match.group()
 
-# =========================================================
-# PROCESS COMPANY DOCUMENTS
-# =========================================================
+    # =====================
+    # TELEFONO
+    # =====================
+
+    phone_match = re.search(
+        r'(\+57\s?\d{10}|\d{7,10})',
+        text
+    )
+
+    if phone_match:
+        data["telefono"] = phone_match.group()
+
+    # =====================
+    # EMPRESA
+    # =====================
+
+    empresa_patterns = [
+
+        r'([A-Z\s]+(?:SAS|LTDA|SA|S\.A\.S\.|LIMITADA))',
+
+    ]
+
+    for pattern in empresa_patterns:
+
+        match = re.search(pattern, text)
+
+        if match:
+
+            data["empresa"] = match.group(1).strip()
+            break
+
+    # =====================
+    # REPRESENTANTE LEGAL
+    # =====================
+
+    representante_patterns = [
+
+        r'REPRESENTANTE LEGAL[:\s]+([A-Z\s]+)',
+        r'Representante Legal[:\s]+([A-Z\s]+)',
+
+    ]
+
+    for pattern in representante_patterns:
+
+        match = re.search(
+            pattern,
+            text
+        )
+
+        if match:
+
+            data["representante_legal"] = \
+                match.group(1).strip()
+
+            break
+
+    # =====================
+    # DIRECCION
+    # =====================
+
+    direccion_match = re.search(
+        r'(CALLE|CARRERA|CRA|CL)\s+[A-Z0-9\s\-#]+',
+        text,
+        re.IGNORECASE
+    )
+
+    if direccion_match:
+
+        data["direccion"] = direccion_match.group()
+
+    return data
+
+
+# =========================
+# SUBIR DOCUMENTOS
+# =========================
 
 @app.post("/upload-company-documents")
 async def upload_company_documents(
@@ -251,111 +217,23 @@ async def upload_company_documents(
 
                 f.write(await file.read())
 
-            # =====================================
-            # PDF
-            # =====================================
+            text = extract_text_from_pdf(file_path)
 
-            if file.filename.lower().endswith(".pdf"):
+            all_text += text + "\n"
 
-                text = extract_text_from_pdf(file_path)
-
-                all_text += text + "\n"
-
-            # =====================================
-            # DOCX
-            # =====================================
-
-            elif file.filename.lower().endswith(".docx"):
-
-                doc = Document(file_path)
-
-                for paragraph in doc.paragraphs:
-
-                    all_text += paragraph.text + "\n"
-
-            # =====================================
-            # XLSX
-            # =====================================
-
-            elif file.filename.lower().endswith(".xlsx"):
-
-                workbook = load_workbook(file_path)
-
-                for sheet in workbook.worksheets:
-
-                    for row in sheet.iter_rows():
-
-                        for cell in row:
-
-                            if cell.value:
-
-                                all_text += (
-                                    str(cell.value) + "\n"
-                                )
-
-            # =====================================
-            # XLS
-            # =====================================
-
-            elif file.filename.lower().endswith(".xls"):
-
-                workbook = xlrd.open_workbook(file_path)
-
-                for sheet in workbook.sheets():
-
-                    for row_idx in range(sheet.nrows):
-
-                        row = sheet.row_values(row_idx)
-
-                        for value in row:
-
-                            if value:
-
-                                all_text += (
-                                    str(value) + "\n"
-                                )
-
-        # =====================================
-        # AI
-        # =====================================
-
-        ai_response = extract_with_ai(all_text)
-
-        try:
-
-            cleaned = (
-                ai_response
-                .replace("```json", "")
-                .replace("```", "")
-                .strip()
-            )
-
-            company_data = json.loads(cleaned)
-
-        except:
-
-            company_data = {
-                "raw_response": ai_response
-            }
-
-        # =====================================
-        # SAVE COMPANY DATA
-        # =====================================
-
-        os.makedirs(
-            "storage",
-            exist_ok=True
+        company_data = extract_company_data(
+            all_text
         )
 
         with open(
             "storage/company_data.json",
             "w",
             encoding="utf-8"
-        ) as f:
+        ) as json_file:
 
             json.dump(
                 company_data,
-                f,
+                json_file,
                 indent=4,
                 ensure_ascii=False
             )
@@ -363,12 +241,10 @@ async def upload_company_documents(
         return {
 
             "status": "success",
-
             "message": "Documents processed",
-
             "company_data": company_data,
-
             "preview_text": all_text[:3000]
+
         }
 
     except Exception as e:
@@ -376,15 +252,15 @@ async def upload_company_documents(
         return {
 
             "status": "error",
-
             "detail": str(e),
-
             "trace": traceback.format_exc()
+
         }
 
-# =========================================================
-# FILL WORD
-# =========================================================
+
+# =========================
+# LLENAR WORD
+# =========================
 
 @app.post("/fill-word")
 async def fill_word(
@@ -402,12 +278,12 @@ async def fill_word(
             company_data = json.load(f)
 
         os.makedirs(
-            "storage/generated",
+            "storage/forms",
             exist_ok=True
         )
 
         input_path = (
-            f"storage/generated/{file.filename}"
+            f"storage/forms/{file.filename}"
         )
 
         with open(input_path, "wb") as f:
@@ -416,84 +292,53 @@ async def fill_word(
 
         doc = Document(input_path)
 
-        # =====================================
-        # PARAGRAPHS
-        # =====================================
+        replacements = {
+
+            "{{empresa}}":
+                company_data.get("empresa", ""),
+
+            "{{nit}}":
+                company_data.get("nit", ""),
+
+            "{{representante_legal}}":
+                company_data.get(
+                    "representante_legal",
+                    ""
+                ),
+
+            "{{direccion}}":
+                company_data.get("direccion", ""),
+
+            "{{telefono}}":
+                company_data.get("telefono", ""),
+
+            "{{email}}":
+                company_data.get("email", ""),
+
+        }
 
         for paragraph in doc.paragraphs:
 
-            text = paragraph.text.lower()
+            for key, value in replacements.items():
 
-            for field, aliases in FIELD_MAPPINGS.items():
+                if key in paragraph.text:
 
-                matched = False
-
-                for alias in aliases:
-
-                    if alias in text:
-
-                        matched = True
-                        break
-
-                if not matched:
-                    continue
-
-                value = company_data.get(field)
-
-                if not value:
-                    continue
-
-                paragraph.text = (
-                    paragraph.text + " " + str(value)
-                )
-
-        # =====================================
-        # TABLES
-        # =====================================
-
-        for table in doc.tables:
-
-            for row in table.rows:
-
-                for cell in row.cells:
-
-                    cell_text = cell.text.lower()
-
-                    for field, aliases in FIELD_MAPPINGS.items():
-
-                        matched = False
-
-                        for alias in aliases:
-
-                            if alias in cell_text:
-
-                                matched = True
-                                break
-
-                        if not matched:
-                            continue
-
-                        value = company_data.get(field)
-
-                        if not value:
-                            continue
-
-                        cell.text = (
-                            cell.text + " " + str(value)
+                    paragraph.text = \
+                        paragraph.text.replace(
+                            key,
+                            value
                         )
 
         output_path = (
-            "storage/generated/FILLED_WORD.docx"
+            "storage/FILLED_FORM.docx"
         )
 
         doc.save(output_path)
 
         return FileResponse(
             output_path,
-            filename="FILLED_WORD.docx",
-            media_type=(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename="FILLED_FORM.docx"
         )
 
     except Exception as e:
@@ -501,15 +346,15 @@ async def fill_word(
         return {
 
             "status": "error",
-
             "detail": str(e),
-
             "trace": traceback.format_exc()
+
         }
 
-# =========================================================
-# FILL EXCEL
-# =========================================================
+
+# =========================
+# LLENAR EXCEL
+# =========================
 
 @app.post("/fill-excel")
 async def fill_excel(
@@ -518,15 +363,59 @@ async def fill_excel(
 
     try:
 
-        extension = os.path.splitext(file.filename)[1].lower()
+        with open(
+            "storage/company_data.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
 
-        input_path = f"storage/{file.filename}"
+            company_data = json.load(f)
+
+        os.makedirs(
+            "storage/excel_forms",
+            exist_ok=True
+        )
+
+        input_path = (
+            f"storage/excel_forms/{file.filename}"
+        )
 
         with open(input_path, "wb") as f:
+
             f.write(await file.read())
 
+        extension = file.filename.split(".")[-1].lower()
+
+        replacements = {
+
+            "{{empresa}}":
+                company_data.get("empresa", ""),
+
+            "{{nit}}":
+                company_data.get("nit", ""),
+
+            "{{representante_legal}}":
+                company_data.get(
+                    "representante_legal",
+                    ""
+                ),
+
+            "{{direccion}}":
+                company_data.get("direccion", ""),
+
+            "{{telefono}}":
+                company_data.get("telefono", ""),
+
+            "{{email}}":
+                company_data.get("email", ""),
+
+        }
+
+        # =========================
         # XLSX
-        if extension == ".xlsx":
+        # =========================
+
+        if extension == "xlsx":
 
             workbook = load_workbook(input_path)
 
@@ -536,100 +425,109 @@ async def fill_excel(
 
                     for cell in row:
 
-                        if cell.value:
+                        if isinstance(cell.value, str):
 
-                            text = str(cell.value)
+                            text = cell.value
 
-                            text = replace_tags(text)
+                            for key, value in replacements.items():
+
+                                text = text.replace(
+                                    key,
+                                    value
+                                )
 
                             cell.value = text
 
-            output_path = "storage/FILLED_EXCEL.xlsx"
+            output_path = (
+                "storage/FILLED_EXCEL.xlsx"
+            )
 
             workbook.save(output_path)
 
             return FileResponse(
                 output_path,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 filename="FILLED_EXCEL.xlsx"
             )
 
+        # =========================
         # XLS
-        elif extension == ".xls":
+        # =========================
 
-            df = pd.read_excel(
+        elif extension == "xls":
+
+            rb = xlrd.open_workbook(
                 input_path,
-                engine="xlrd"
+                formatting_info=True
             )
 
-            for column in df.columns:
+            wb = copy(rb)
 
-                df[column] = df[column].astype(str)
+            for sheet_index in range(rb.nsheets):
 
-                df[column] = df[column].apply(
-                    replace_tags
+                read_sheet = rb.sheet_by_index(
+                    sheet_index
                 )
 
-            output_path = "storage/FILLED_EXCEL.xls"
+                write_sheet = wb.get_sheet(
+                    sheet_index
+                )
 
-            df.to_excel(
-                output_path,
-                index=False,
-                engine="xlwt"
+                for row in range(
+                    read_sheet.nrows
+                ):
+
+                    for col in range(
+                        read_sheet.ncols
+                    ):
+
+                        value = read_sheet.cell_value(
+                            row,
+                            col
+                        )
+
+                        if isinstance(value, str):
+
+                            text = value
+
+                            for key, val in replacements.items():
+
+                                text = text.replace(
+                                    key,
+                                    val
+                                )
+
+                            write_sheet.write(
+                                row,
+                                col,
+                                text
+                            )
+
+            output_path = (
+                "storage/FILLED_EXCEL.xls"
             )
+
+            wb.save(output_path)
 
             return FileResponse(
                 output_path,
+                media_type="application/vnd.ms-excel",
                 filename="FILLED_EXCEL.xls"
             )
 
         else:
 
             return {
-                "error": "Formato no soportado"
+                "status": "error",
+                "detail": "Formato no soportado"
             }
 
     except Exception as e:
 
         return {
-            "status": "error",
-            "detail": str(e)
-        }
-
-        # =====================================
-        # SAVE OUTPUT
-        # =====================================
-
-        output_path = (
-            "storage/generated/"
-            "FILLED_EXCEL.xlsx"
-        )
-
-        workbook.save(output_path)
-
-        extension = os.path.splitext(file.filename)[1]
-
-        output_path = f"storage/FILLED_EXCEL{extension}"
-
-        if extension == ".xlsx":
-
-            workbook.save(output_path)
-
-        elif extension == ".xls":
-
-            workbook.save(output_path)
-
-        return FileResponse(
-            output_path,
-            filename=f"FILLED_EXCEL{extension}"
-        )
-
-    except Exception as e:
-
-        return {
 
             "status": "error",
-
             "detail": str(e),
-
             "trace": traceback.format_exc()
+
         }
