@@ -357,104 +357,41 @@ async def fill_word(
 # =========================
 
 @app.post("/fill-excel")
-async def fill_excel(
-    file: UploadFile = File(...)
-):
+async def fill_excel(file: UploadFile = File(...)):
 
     try:
 
-        with open(
-            "storage/company_data.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
+        os.makedirs("storage", exist_ok=True)
 
-            company_data = json.load(f)
+        filename = file.filename.lower()
 
-        os.makedirs(
-            "storage/excel_forms",
-            exist_ok=True
-        )
-
-        input_path = (
-            f"storage/excel_forms/{file.filename}"
-        )
+        input_path = f"storage/{file.filename}"
 
         with open(input_path, "wb") as f:
-
             f.write(await file.read())
 
-        extension = file.filename.split(".")[-1].lower()
+        if filename.endswith(".xlsx"):
 
-        replacements = {
+            output_path = "storage/FILLED_EXCEL.xlsx"
 
-            "{{empresa}}":
-                company_data.get("empresa", ""),
+            workbook = openpyxl.load_workbook(input_path)
 
-            "{{nit}}":
-                company_data.get("nit", ""),
+            sheet = workbook.active
 
-            "{{representante_legal}}":
-                company_data.get(
-                    "representante_legal",
-                    ""
-                ),
-
-            "{{direccion}}":
-                company_data.get("direccion", ""),
-
-            "{{telefono}}":
-                company_data.get("telefono", ""),
-
-            "{{email}}":
-                company_data.get("email", ""),
-
-        }
-
-        # =========================
-        # XLSX
-        # =========================
-
-        if extension == "xlsx":
-
-            workbook = load_workbook(input_path)
-
-            for sheet in workbook.worksheets:
-
-                for row in sheet.iter_rows():
-
-                    for cell in row:
-
-                        if isinstance(cell.value, str):
-
-                            text = cell.value
-
-                            for key, value in replacements.items():
-
-                                text = text.replace(
-                                    key,
-                                    value
-                                )
-
-                            cell.value = text
-
-            output_path = (
-                "storage/FILLED_EXCEL.xlsx"
-            )
+            sheet["A1"] = "EMPRESA"
+            sheet["B1"] = "ZEHIRUT LTDA"
 
             workbook.save(output_path)
 
             return FileResponse(
-                output_path,
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                filename="FILLED_EXCEL.xlsx"
+                path=output_path,
+                filename="FILLED_EXCEL.xlsx",
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # =========================
-        # XLS
-        # =========================
+        elif filename.endswith(".xls"):
 
-        elif extension == "xls":
+            output_path = "storage/FILLED_EXCEL.xls"
 
             rb = xlrd.open_workbook(
                 input_path,
@@ -463,71 +400,30 @@ async def fill_excel(
 
             wb = copy(rb)
 
-            for sheet_index in range(rb.nsheets):
+            ws = wb.get_sheet(0)
 
-                read_sheet = rb.sheet_by_index(
-                    sheet_index
-                )
-
-                write_sheet = wb.get_sheet(
-                    sheet_index
-                )
-
-                for row in range(
-                    read_sheet.nrows
-                ):
-
-                    for col in range(
-                        read_sheet.ncols
-                    ):
-
-                        value = read_sheet.cell_value(
-                            row,
-                            col
-                        )
-
-                        if isinstance(value, str):
-
-                            text = value
-
-                            for key, val in replacements.items():
-
-                                text = text.replace(
-                                    key,
-                                    val
-                                )
-
-                            write_sheet.write(
-                                row,
-                                col,
-                                text
-                            )
-
-            output_path = (
-                "storage/FILLED_EXCEL.xls"
-            )
+            ws.write(0, 0, "EMPRESA")
+            ws.write(0, 1, "ZEHIRUT LTDA")
 
             wb.save(output_path)
 
             return FileResponse(
-                output_path,
-                media_type="application/vnd.ms-excel",
-                filename="FILLED_EXCEL.xls"
+                path=output_path,
+                filename="FILLED_EXCEL.xls",
+                media_type="application/vnd.ms-excel"
             )
 
         else:
 
             return {
-                "status": "error",
-                "detail": "Formato no soportado"
+                "error": "Formato no soportado"
             }
 
     except Exception as e:
 
+        import traceback
+
         return {
-
-            "status": "error",
-            "detail": str(e),
+            "error": str(e),
             "trace": traceback.format_exc()
-
         }
