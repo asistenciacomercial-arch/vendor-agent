@@ -18,6 +18,9 @@ import shutil
 import xlrd
 import json
 import os
+import pandas as pd
+import xlrd
+import xlwt
 
 # =========================================================
 # FASTAPI
@@ -515,167 +518,82 @@ async def fill_excel(
 
     try:
 
-        # =====================================
-        # VALIDATE
-        # =====================================
+        extension = os.path.splitext(file.filename)[1].lower()
 
-        valid_extensions = (
-            ".xlsx",
-            ".xlsm"
-        )
-
-        if not file.filename.lower().endswith(valid_extensions):
-
-            return {
-                "status": "error",
-                "detail": (
-                    "Formato no soportado. "
-                    "Use .xlsx o .xlsm"
-                )
-            }
-
-        # =====================================
-        # LOAD COMPANY DATA
-        # =====================================
-
-        with open(
-            "storage/company_data.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            company_data = json.load(f)
-
-        # =====================================
-        # SAVE INPUT FILE
-        # =====================================
-
-        os.makedirs(
-            "storage/generated",
-            exist_ok=True
-        )
-
-        input_path = (
-            f"storage/generated/{file.filename}"
-        )
+        input_path = f"storage/{file.filename}"
 
         with open(input_path, "wb") as f:
-
             f.write(await file.read())
 
-        # =====================================
-        # OPEN WORKBOOK
-        # =====================================
+        # XLSX
+        if extension == ".xlsx":
 
-        workbook = load_workbook(input_path)
+            workbook = load_workbook(input_path)
 
-        # =====================================
-        # PROCESS SHEETS
-        # =====================================
+            for sheet in workbook.worksheets:
 
-        for ws in workbook.worksheets:
+                for row in sheet.iter_rows():
 
-            for row in ws.iter_rows():
+                    for cell in row:
 
-                for cell in row:
+                        if cell.value:
 
-                    if cell.value is None:
-                        continue
+                            text = str(cell.value)
 
-                    cell_text = (
-                        str(cell.value)
-                        .strip()
-                        .lower()
-                    )
+                            text = replace_tags(text)
 
-                    if len(cell_text) < 2:
-                        continue
+                            cell.value = text
 
-                    # =================================
-                    # FIND MATCH
-                    # =================================
+            output_path = "storage/FILLED_EXCEL.xlsx"
 
-                    for field, aliases in FIELD_MAPPINGS.items():
+            workbook.save(output_path)
 
-                        matched = False
+            return FileResponse(
+                output_path,
+                filename="FILLED_EXCEL.xlsx"
+            )
 
-                        for alias in aliases:
+        # XLS
+        elif extension == ".xls":
 
-                            if alias in cell_text:
+            df = pd.read_excel(
+                input_path,
+                engine="xlrd"
+            )
 
-                                matched = True
-                                break
+            for column in df.columns:
 
-                        if not matched:
-                            continue
+                df[column] = df[column].astype(str)
 
-                        value = company_data.get(field)
+                df[column] = df[column].apply(
+                    replace_tags
+                )
 
-                        if not value:
-                            continue
+            output_path = "storage/FILLED_EXCEL.xls"
 
-                        # =============================
-                        # TARGET CELL
-                        # =============================
+            df.to_excel(
+                output_path,
+                index=False,
+                engine="xlwt"
+            )
 
-                        target_col = cell.column + 1
-                        target_row = cell.row
+            return FileResponse(
+                output_path,
+                filename="FILLED_EXCEL.xls"
+            )
 
-                        target_cell = ws.cell(
-                            row=target_row,
-                            column=target_col
-                        )
+        else:
 
-                        # =============================
-                        # ONLY EMPTY CELLS
-                        # =============================
+            return {
+                "error": "Formato no soportado"
+            }
 
-                        if (
-                            target_cell.value is None
-                            or str(target_cell.value).strip() == ""
-                        ):
+    except Exception as e:
 
-                            target_cell.value = value
-
-                            # =========================
-                            # COPY STYLE
-                            # =========================
-
-                            if cell.has_style:
-
-                                target_cell._style = (
-                                    copy(cell._style)
-                                )
-
-                            if cell.font:
-                                target_cell.font = (
-                                    copy(cell.font)
-                                )
-
-                            if cell.fill:
-                                target_cell.fill = (
-                                    copy(cell.fill)
-                                )
-
-                            if cell.border:
-                                target_cell.border = (
-                                    copy(cell.border)
-                                )
-
-                            if cell.alignment:
-                                target_cell.alignment = (
-                                    copy(cell.alignment)
-                                )
-
-                            if cell.number_format:
-                                target_cell.number_format = (
-                                    cell.number_format
-                                )
-
-                            if cell.protection:
-                                target_cell.protection = (
-                                    copy(cell.protection)
-                                )
+        return {
+            "status": "error",
+            "detail": str(e)
+        }
 
         # =====================================
         # SAVE OUTPUT
