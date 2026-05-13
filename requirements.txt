@@ -13,3 +13,4 @@ requests
 groq
 openai
 pytesseract
+xlutils
