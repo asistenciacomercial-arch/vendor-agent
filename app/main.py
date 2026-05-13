@@ -10,9 +10,8 @@ import re
 import json
 import traceback
 import openpyxl
-import xlrd
-
-from xlutils.copy import copy
+import openpyxl
+from openpyxl import load_workbook
 
 app = FastAPI()
 
@@ -362,74 +361,188 @@ async def fill_excel(
 
     try:
 
-        os.makedirs("storage", exist_ok=True)
+        # =========================
+        # VALIDAR
+        # =========================
 
-        filename = file.filename
-        lower = filename.lower()
+        if not file.filename.lower().endswith(".xlsx"):
 
-        input_path = f"storage/{filename}"
+            return {
+                "status": "error",
+                "detail": (
+                    "Solo se permiten archivos .xlsx"
+                )
+            }
+
+        # =========================
+        # CREAR STORAGE
+        # =========================
+
+        os.makedirs(
+            "storage",
+            exist_ok=True
+        )
+
+        # =========================
+        # GUARDAR INPUT
+        # =========================
+
+        input_path = (
+            f"storage/{file.filename}"
+        )
 
         with open(input_path, "wb") as f:
+
             f.write(await file.read())
 
         # =========================
-        # XLSX
+        # CARGAR DATOS EMPRESA
         # =========================
 
-        if lower.endswith(".xlsx"):
+        with open(
+            "storage/company_data.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
 
-            workbook = openpyxl.load_workbook(input_path)
-
-            sheet = workbook.active
-
-            sheet["A1"] = "EMPRESA"
-            sheet["B1"] = "ZEHIRUT LTDA"
-
-            output_path = "storage/FILLED_EXCEL.xlsx"
-
-            workbook.save(output_path)
-
-            return FileResponse(
-                path=output_path,
-                filename="FILLED_EXCEL.xlsx",
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            company_data = json.load(f)
 
         # =========================
-        # XLS
+        # ABRIR EXCEL
         # =========================
 
-        elif lower.endswith(".xls"):
+        workbook = load_workbook(input_path)
 
-            rb = xlrd.open_workbook(
-                input_path,
-                formatting_info=True
+        # =========================
+        # RECORRER HOJAS
+        # =========================
+
+        for sheet in workbook.worksheets:
+
+            for row in sheet.iter_rows():
+
+                for cell in row:
+
+                    if not isinstance(cell.value, str):
+                        continue
+
+                    text = cell.value.lower()
+
+                    # =====================
+                    # DETECCIÓN CAMPOS
+                    # =====================
+
+                    if "razón social" in text \
+                    or "razon social" in text:
+
+                        sheet.cell(
+                            row=cell.row,
+                            column=cell.column + 1
+                        ).value = str(
+                            company_data.get(
+                                "empresa",
+                                ""
+                            )
+                        )
+
+                    elif "nit" in text:
+
+                        sheet.cell(
+                            row=cell.row,
+                            column=cell.column + 1
+                        ).value = str(
+                            company_data.get(
+                                "nit",
+                                ""
+                            )
+                        )
+
+                    elif "correo" in text \
+                    or "email" in text:
+
+                        sheet.cell(
+                            row=cell.row,
+                            column=cell.column + 1
+                        ).value = str(
+                            company_data.get(
+                                "email",
+                                ""
+                            )
+                        )
+
+                    elif "telefono" in text \
+                    or "teléfono" in text:
+
+                        sheet.cell(
+                            row=cell.row,
+                            column=cell.column + 1
+                        ).value = str(
+                            company_data.get(
+                                "telefono",
+                                ""
+                            )
+                        )
+
+                    elif "direccion" in text \
+                    or "dirección" in text:
+
+                        sheet.cell(
+                            row=cell.row,
+                            column=cell.column + 1
+                        ).value = str(
+                            company_data.get(
+                                "direccion",
+                                ""
+                            )
+                        )
+
+                    elif "representante legal" in text:
+
+                        sheet.cell(
+                            row=cell.row,
+                            column=cell.column + 1
+                        ).value = str(
+                            company_data.get(
+                                "representante_legal",
+                                ""
+                            )
+                        )
+
+        # =========================
+        # GUARDAR OUTPUT
+        # =========================
+
+        output_path = (
+            "storage/FILLED_EXCEL.xlsx"
+        )
+
+        workbook.save(output_path)
+
+        # =========================
+        # RETORNAR
+        # =========================
+
+        return FileResponse(
+            path=output_path,
+            filename="FILLED_EXCEL.xlsx",
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
-            wb = copy(rb)
-
-            ws = wb.get_sheet(0)
-
-            ws.write(0, 0, "EMPRESA")
-            ws.write(0, 1, "ZEHIRUT LTDA")
-
-            output_path = "storage/FILLED_EXCEL.xls"
-
-            wb.save(output_path)
-
-            return FileResponse(
-                path=output_path,
-                filename="FILLED_EXCEL.xls",
-                media_type="application/vnd.ms-excel"
-            )
-
-        else:
-
-            return {
-                "error": "Formato no soportado"
-            }
+        )
 
     except Exception as e:
+
+        import traceback
+
+        return {
+
+            "status": "error",
+
+            "detail": str(e),
+
+            "trace": traceback.format_exc()
+
+        }
 
         import traceback
 
