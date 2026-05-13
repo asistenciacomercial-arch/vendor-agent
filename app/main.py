@@ -361,176 +361,41 @@ async def fill_excel(
 
     try:
 
-        # =========================
-        # VALIDAR
-        # =========================
+        import os
+        from openpyxl import load_workbook
+        from fastapi.responses import FileResponse
 
-        if not file.filename.lower().endswith(".xlsx"):
+        os.makedirs("storage", exist_ok=True)
 
-            return {
-                "status": "error",
-                "detail": (
-                    "Solo se permiten archivos .xlsx"
-                )
-            }
-
-        # =========================
-        # CREAR STORAGE
-        # =========================
-
-        os.makedirs(
-            "storage",
-            exist_ok=True
-        )
-
-        # =========================
-        # GUARDAR INPUT
-        # =========================
-
-        input_path = (
-            f"storage/{file.filename}"
-        )
+        input_path = f"storage/{file.filename}"
 
         with open(input_path, "wb") as f:
-
             f.write(await file.read())
 
-        # =========================
-        # CARGAR DATOS EMPRESA
-        # =========================
-
-        with open(
-            "storage/company_data.json",
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            company_data = json.load(f)
-
-        # =========================
-        # ABRIR EXCEL
-        # =========================
-
+        # ABRIR
         workbook = load_workbook(input_path)
 
-        # =========================
-        # RECORRER HOJAS
-        # =========================
+        # NO MODIFICAR NADA
 
-        for sheet in workbook.worksheets:
+        output_path = "storage/TEST.xlsx"
 
-            for row in sheet.iter_rows():
-
-                for cell in row:
-
-                    if not isinstance(cell.value, str):
-                        continue
-
-                    text = cell.value.lower()
-
-                    # =====================
-                    # DETECCIÓN CAMPOS
-                    # =====================
-
-                    if "razón social" in text \
-                    or "razon social" in text:
-
-                        sheet.cell(
-                            row=cell.row,
-                            column=cell.column + 1
-                        ).value = str(
-                            company_data.get(
-                                "empresa",
-                                ""
-                            )
-                        )
-
-                    elif "nit" in text:
-
-                        sheet.cell(
-                            row=cell.row,
-                            column=cell.column + 1
-                        ).value = str(
-                            company_data.get(
-                                "nit",
-                                ""
-                            )
-                        )
-
-                    elif "correo" in text \
-                    or "email" in text:
-
-                        sheet.cell(
-                            row=cell.row,
-                            column=cell.column + 1
-                        ).value = str(
-                            company_data.get(
-                                "email",
-                                ""
-                            )
-                        )
-
-                    elif "telefono" in text \
-                    or "teléfono" in text:
-
-                        sheet.cell(
-                            row=cell.row,
-                            column=cell.column + 1
-                        ).value = str(
-                            company_data.get(
-                                "telefono",
-                                ""
-                            )
-                        )
-
-                    elif "direccion" in text \
-                    or "dirección" in text:
-
-                        sheet.cell(
-                            row=cell.row,
-                            column=cell.column + 1
-                        ).value = str(
-                            company_data.get(
-                                "direccion",
-                                ""
-                            )
-                        )
-
-                    elif "representante legal" in text:
-
-                        sheet.cell(
-                            row=cell.row,
-                            column=cell.column + 1
-                        ).value = str(
-                            company_data.get(
-                                "representante_legal",
-                                ""
-                            )
-                        )
-
-        # =========================
-        # GUARDAR OUTPUT
-        # =========================
-
-        output_path = (
-            "storage/FILLED_EXCEL.xlsx"
-        )
-
+        # GUARDAR
         workbook.save(output_path)
 
-        # =========================
-        # RETORNAR
-        # =========================
-
         return FileResponse(
-            path=output_path,
-            filename="FILLED_EXCEL.xlsx",
-            media_type=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            output_path,
+            filename="TEST.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
+
+        import traceback
+
+        return {
+            "error": str(e),
+            "trace": traceback.format_exc()
+        }
 
         import traceback
 
