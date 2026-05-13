@@ -2,10 +2,11 @@ fastapi
 uvicorn
 python-multipart
 pdfplumber
-pdf2image
-pytesseract
 python-docx
 openpyxl
-xlrd==1.2.0
-openai
-pillow
+pandas
+xlrd
+xlwt
+odfpy
+requests
+groq
