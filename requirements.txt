@@ -10,3 +10,4 @@ xlwt
 odfpy
 requests
 groq
+openai
