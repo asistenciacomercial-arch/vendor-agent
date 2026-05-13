@@ -74,7 +74,7 @@
     <hr>
 
     <!-- ========================= -->
-    <!-- WORD FORM -->
+    <!-- WORD -->
     <!-- ========================= -->
 
     <h2>Subir formulario Word</h2>
@@ -92,14 +92,17 @@
     </button>
 
     <hr>
-    <hr>
+
+    <!-- ========================= -->
+    <!-- EXCEL -->
+    <!-- ========================= -->
 
     <h2>Subir formulario Excel</h2>
 
     <input
         type="file"
         id="excelFile"
-        accept=".xlsx,.xlsm"
+        accept=".xlsx,.xls"
     >
 
     <br>
@@ -120,9 +123,9 @@
 
 <script>
 
-    // =========================
+    // =====================================
     // UPLOAD COMPANY DOCUMENTS
-    // =========================
+    // =====================================
 
     async function uploadFiles(){
 
@@ -143,7 +146,7 @@
         }
 
         result.innerText =
-            "Procesando documentos empresa..."
+            "Procesando documentos..."
 
         try{
 
@@ -155,7 +158,8 @@
                 }
             )
 
-            const data = await response.json()
+            const data =
+                await response.json()
 
             result.innerText =
                 JSON.stringify(data, null, 2)
@@ -167,9 +171,9 @@
         }
     }
 
-    // =========================
+    // =====================================
     // FILL WORD
-    // =========================
+    // =====================================
 
     async function fillWord(){
 
@@ -179,6 +183,14 @@
         const result =
             document.getElementById("result")
 
+        if(!input.files.length){
+
+            result.innerText =
+                "Seleccione un archivo Word"
+
+            return
+        }
+
         const formData = new FormData()
 
         formData.append(
@@ -187,7 +199,7 @@
         )
 
         result.innerText =
-            "Llenando formulario Word..."
+            "Llenando Word..."
 
         try{
 
@@ -199,8 +211,18 @@
                 }
             )
 
-            // descargar archivo
-            const blob = await response.blob()
+            if(!response.ok){
+
+                const errorText =
+                    await response.text()
+
+                result.innerText = errorText
+
+                return
+            }
+
+            const blob =
+                await response.blob()
 
             const url =
                 window.URL.createObjectURL(blob)
@@ -209,7 +231,6 @@
                 document.createElement("a")
 
             a.href = url
-
             a.download = "FILLED_FORM.docx"
 
             document.body.appendChild(a)
@@ -227,86 +248,114 @@
                 JSON.stringify(error, null, 2)
         }
     }
+
+    // =====================================
+    // FILL EXCEL
+    // =====================================
+
     async function fillExcel(){
 
-    const input =
-        document.getElementById("excelFile")
+        const input =
+            document.getElementById("excelFile")
 
-    const result =
-        document.getElementById("result")
+        const result =
+            document.getElementById("result")
 
-    const formData = new FormData()
+        if(!input.files.length){
 
-    formData.append(
-        "file",
-        input.files[0]
-    )
+            result.innerText =
+                "Seleccione un archivo Excel"
 
-    result.innerText =
-        "Llenando Excel..."
+            return
+        }
 
-    try{
+        const formData = new FormData()
 
-        const response = await fetch(
-            "/fill-excel",
-            {
-                method:"POST",
-                body:formData
-            }
+        formData.append(
+            "file",
+            input.files[0]
         )
 
-        const blob = await response.blob()
+        result.innerText =
+            "Llenando Excel..."
 
-        const url =
-            window.URL.createObjectURL(blob)
+        try{
 
-        const a =
-            document.createElement("a")
+            const response = await fetch(
+                "/fill-excel",
+                {
+                    method:"POST",
+                    body:formData
+                }
+            )
 
-        a.href = url
+            if(!response.ok){
 
-        const disposition =
-            response.headers.get("content-disposition")
-        
-        let filename = "archivo"
-        
-        if(disposition){
-        
-            const match =
-                disposition.match(/filename="?([^"]+)"?/)
-        
-            if(match){
-                filename = match[1]
+                const errorText =
+                    await response.text()
+
+                result.innerText =
+                    errorText
+
+                return
             }
+
+            const blob =
+                await response.blob()
+
+            const url =
+                window.URL.createObjectURL(blob)
+
+            // =========================
+            // DETECT FILENAME
+            // =========================
+
+            const disposition =
+                response.headers.get(
+                    "content-disposition"
+                )
+
+            let filename = "archivo.xlsx"
+
+            if(disposition){
+
+                const match =
+                    disposition.match(
+                        /filename="?([^"]+)"?/
+                    )
+
+                if(match){
+
+                    filename = match[1]
+                }
+            }
+
+            // =========================
+            // DOWNLOAD
+            // =========================
+
+            const a =
+                document.createElement("a")
+
+            a.href = url
+            a.download = filename
+
+            document.body.appendChild(a)
+
+            a.click()
+
+            a.remove()
+
+            result.innerText =
+                "Excel generado correctamente"
+
+        }catch(error){
+
+            result.innerText =
+                JSON.stringify(error, null, 2)
         }
-        
-        const a =
-            document.createElement("a")
-        
-        a.href = url
-        a.download = filename
-        
-        document.body.appendChild(a)
-        
-        a.click()
-        
-        a.remove()
-
-        document.body.appendChild(a)
-
-        a.click()
-
-        a.remove()
-
-        result.innerText =
-            "Excel generado correctamente"
-
-    }catch(error){
-
-        result.innerText =
-            JSON.stringify(error, null, 2)
     }
-}
+
 </script>
 
 </body>
