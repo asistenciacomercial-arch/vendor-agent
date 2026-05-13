@@ -12,3 +12,4 @@ odfpy
 requests
 groq
 openai
+pytesseract
