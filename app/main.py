@@ -4,16 +4,15 @@ from fastapi.staticfiles import StaticFiles
 
 from docx import Document
 
-from openpyxl import load_workbook
-
-import xlrd
-from xlutils.copy import copy
-
 import pdfplumber
 import os
 import re
 import json
 import traceback
+import openpyxl
+import xlrd
+
+from xlutils.copy import copy
 
 app = FastAPI()
 
@@ -357,22 +356,27 @@ async def fill_word(
 # =========================
 
 @app.post("/fill-excel")
-async def fill_excel(file: UploadFile = File(...)):
+async def fill_excel(
+    file: UploadFile = File(...)
+):
 
     try:
 
         os.makedirs("storage", exist_ok=True)
 
-        filename = file.filename.lower()
+        filename = file.filename
+        lower = filename.lower()
 
-        input_path = f"storage/{file.filename}"
+        input_path = f"storage/{filename}"
 
         with open(input_path, "wb") as f:
             f.write(await file.read())
 
-        if filename.endswith(".xlsx"):
+        # =========================
+        # XLSX
+        # =========================
 
-            output_path = "storage/FILLED_EXCEL.xlsx"
+        if lower.endswith(".xlsx"):
 
             workbook = openpyxl.load_workbook(input_path)
 
@@ -380,6 +384,8 @@ async def fill_excel(file: UploadFile = File(...)):
 
             sheet["A1"] = "EMPRESA"
             sheet["B1"] = "ZEHIRUT LTDA"
+
+            output_path = "storage/FILLED_EXCEL.xlsx"
 
             workbook.save(output_path)
 
@@ -389,9 +395,11 @@ async def fill_excel(file: UploadFile = File(...)):
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        elif filename.endswith(".xls"):
+        # =========================
+        # XLS
+        # =========================
 
-            output_path = "storage/FILLED_EXCEL.xls"
+        elif lower.endswith(".xls"):
 
             rb = xlrd.open_workbook(
                 input_path,
@@ -404,6 +412,8 @@ async def fill_excel(file: UploadFile = File(...)):
 
             ws.write(0, 0, "EMPRESA")
             ws.write(0, 1, "ZEHIRUT LTDA")
+
+            output_path = "storage/FILLED_EXCEL.xls"
 
             wb.save(output_path)
 
