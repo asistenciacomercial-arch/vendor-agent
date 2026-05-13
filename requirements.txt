@@ -2,15 +2,8 @@ fastapi
 uvicorn
 python-multipart
 pdfplumber
-pdf2image
 python-docx
 openpyxl
-pandas
-xlrd
+xlrd==1.2.0
 xlwt
-odfpy
-requests
-groq
-openai
-pytesseract
 xlutils
